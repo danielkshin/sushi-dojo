@@ -12,6 +12,7 @@ namespace SushiDojo.Effects
     /// RevealFromBlack() starts fully black and wipes it away (used on game start).
     /// Play() covers, holds, then reveals. Cover() / Reveal() split it for loading in between.
     /// Leaf images are pre-placed children; each play picks random sprites, sizes and spins.
+    /// The canvas draws above the HUD, hand, and cursor, so those show up as the wipe uncovers them.
     /// </summary>
     public class LeafTransition : MonoBehaviour
     {
@@ -19,6 +20,8 @@ namespace SushiDojo.Effects
 
         const float FullTurnDegrees = 360f;
         const float FullTurn = Mathf.PI * 2f;
+        // Above the hand cursor (999), throw hint (500), and multiplayer HUD (200).
+        const int CoverSortingOrder = 5000;
 
         [Header("Parts")]
         [Tooltip("The canvas area the transition fills.")]
@@ -115,6 +118,7 @@ namespace SushiDojo.Effects
             flipSpeeds = new float[count];
 
             sweep.gameObject.SetActive(false);
+            CoverEveryUi();
 
             // Cover from the very first frame so the scene never flashes before the wipe.
             if (revealOnStart) RevealFromBlack();
@@ -143,6 +147,21 @@ namespace SushiDojo.Effects
             }
 
             if (state != State.Idle) Apply();
+        }
+
+        /// <summary>
+        /// Draw this canvas over every gameplay UI canvas, and let the black panel
+        /// swallow clicks until the wipe uncovers that part of the screen.
+        /// </summary>
+        void CoverEveryUi()
+        {
+            Canvas canvas = GetComponent<Canvas>();
+            if (canvas != null)
+                canvas.sortingOrder = CoverSortingOrder;
+            if (GetComponent<GraphicRaycaster>() == null)
+                gameObject.AddComponent<GraphicRaycaster>();
+            if (blackPanel != null && blackPanel.TryGetComponent(out Image cover))
+                cover.raycastTarget = true;
         }
 
         /// <summary>Snap to fully black, wait, then wipe the black away.</summary>
