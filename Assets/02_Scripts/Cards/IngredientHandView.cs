@@ -76,6 +76,17 @@ namespace SushiDojo.Cards
         public IReadOnlyList<IngredientCardUI> Cards => cards;
         public bool IsFull => cards.Count >= MaxCards;
 
+        public void AddIngredientCounts(Dictionary<IngredientData, int> counts)
+        {
+            if (counts == null) return;
+            foreach (IngredientCardUI card in cards)
+            {
+                if (card == null || card.Data == null) continue;
+                counts.TryGetValue(card.Data, out int count);
+                counts[card.Data] = count + 1;
+            }
+        }
+
         void OnEnable()
         {
             if (networkConveyor == null)

@@ -26,6 +26,17 @@ namespace SushiDojo.Cards
         public bool IsFull => placedIngredientNames.Count >= RecipeData.IngredientSlotCount;
         public bool HasPlacedIngredients => placedIngredients.Count > 0;
         public int PlacedCount => placedIngredients.Count;
+
+        public void AddIngredientCounts(Dictionary<IngredientData, int> counts)
+        {
+            if (counts == null) return;
+            foreach (BoardIngredient ingredient in placedIngredients)
+            {
+                if (ingredient == null || ingredient.Data == null) continue;
+                counts.TryGetValue(ingredient.Data, out int count);
+                counts[ingredient.Data] = count + 1;
+            }
+        }
         /// <summary>The board placed ingredients sit on.</summary>
         public Transform Board => discardTrigger != null ? discardTrigger.transform : transform;
 

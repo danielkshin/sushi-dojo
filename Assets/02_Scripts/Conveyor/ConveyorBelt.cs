@@ -67,7 +67,9 @@ namespace SushiDojo.Conveyor
         [Tooltip("Boost for ingredients that appear often across all recipe decks. Usually leave at 0 — active recipes already cover staples.")]
         [SerializeField, Min(0f)] float globalFrequencyBoost = 0f;
         [Tooltip("Base active boost; scaled up for harder recipes (3→0.7x, 4→1x, 5→1.25x, 6→1.55x). Shared needs use max hardness, not sum.")]
-        [SerializeField, Min(0f)] float activeRecipeBoost = 1.2f;
+        [SerializeField, Min(0f)] float activeRecipeBoost = 2f;
+        [Tooltip("Extra weight for a visible-recipe ingredient a player still needs. 2 = three times that recipe weight.")]
+        [SerializeField, Min(0f)] float missingIngredientBoost = 2f;
         [Tooltip("0 = pure recipe/base weighting. Higher = more random (blend toward equal odds per ingredient).")]
         [SerializeField, Range(0f, 1f)] float diversityMix = 0.28f;
 
@@ -112,7 +114,12 @@ namespace SushiDojo.Conveyor
 
         readonly Dictionary<IngredientData, int> globalFrequencies = new();
         readonly Dictionary<IngredientData, int> activeHardness = new();
+        readonly Dictionary<IngredientData, int> requiredScratch = new();
+        readonly HashSet<IngredientData> missingIngredients = new();
         readonly List<RecipeQueueView> boundQueues = new();
+        int[] sharedHardness = Array.Empty<int>();
+        bool[] sharedMissing = Array.Empty<bool>();
+        bool useSharedDemand;
         int maxGlobalFrequency;
 
         void Awake()
@@ -198,10 +205,52 @@ namespace SushiDojo.Conveyor
             BindRecipeQueues();
         }
 
+        public int IngredientCount => ingredients.Count;
+
+        /// <summary>
+        /// Both players' visible recipes, merged by the host. Hardness is the largest recipe
+        /// that needs each ingredient. Missing marks ingredients a player still doesn't hold.
+        /// </summary>
+        public void SetSharedRecipeDemand(int[] hardness, bool[] missing)
+        {
+            if (hardness == null || missing == null || hardness.Length != missing.Length) return;
+            if (sharedHardness.Length != hardness.Length)
+                sharedHardness = new int[hardness.Length];
+            if (sharedMissing.Length != missing.Length)
+                sharedMissing = new bool[missing.Length];
+            Array.Copy(hardness, sharedHardness, hardness.Length);
+            Array.Copy(missing, sharedMissing, missing.Length);
+            useSharedDemand = true;
+        }
+
         void RefreshSpawnWeights()
         {
-            RecipeIngredientWeights.CollectAllQueues(globalFrequencies, activeHardness);
+            RecipeIngredientWeights.CollectGlobalFrequencies(globalFrequencies);
             maxGlobalFrequency = RecipeIngredientWeights.MaxFrequency(globalFrequencies);
+
+            activeHardness.Clear();
+            missingIngredients.Clear();
+            if (useSharedDemand)
+            {
+                int count = Mathf.Min(ingredients.Count, sharedHardness.Length);
+                for (int i = 0; i < count; i++)
+                {
+                    IngredientData data = ingredients[i];
+                    if (data == null || sharedHardness[i] <= 0) continue;
+                    activeHardness[data] = sharedHardness[i];
+                    if (i < sharedMissing.Length && sharedMissing[i])
+                        missingIngredients.Add(data);
+                }
+                return;
+            }
+
+            RecipeIngredientWeights.CollectPlayerDemand(
+                FindFirstObjectByType<RecipeQueueView>(),
+                FindFirstObjectByType<IngredientHandView>(),
+                FindFirstObjectByType<IngredientPlacementZone>(),
+                activeHardness,
+                missingIngredients,
+                requiredScratch);
         }
 
         float EffectiveSpawnWeight(IngredientData data)
@@ -216,7 +265,9 @@ namespace SushiDojo.Conveyor
                 hardness,
                 globalFrequencyBoost,
                 activeRecipeBoost,
-                diversityMix);
+                diversityMix,
+                missingIngredients.Contains(data),
+                missingIngredientBoost);
         }
 
         void Update()

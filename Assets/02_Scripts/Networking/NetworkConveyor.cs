@@ -27,6 +27,21 @@ public class NetworkConveyor : NetworkBehaviour
     private bool slotsChanged;
     private bool claimPending;
     private IngredientPlacementZone placementZone;
+    RecipeQueueView localQueue;
+    IngredientHandView localHand;
+    readonly Dictionary<ulong, int[]> playerHardness = new();
+    readonly Dictionary<ulong, bool[]> playerMissing = new();
+    readonly List<ulong> staleDemandIds = new();
+    readonly Dictionary<IngredientData, int> demandHardness = new();
+    readonly Dictionary<IngredientData, int> requiredScratch = new();
+    readonly HashSet<IngredientData> demandMissing = new();
+    int[] sendHardness = Array.Empty<int>();
+    bool[] sendMissing = Array.Empty<bool>();
+    int[] sentHardness = Array.Empty<int>();
+    bool[] sentMissing = Array.Empty<bool>();
+    int[] mergedHardness = Array.Empty<int>();
+    bool[] mergedMissing = Array.Empty<bool>();
+    bool demandSent;
 
     const int MaxThrownIngredients = IngredientHandView.MaxCards + RecipeData.IngredientSlotCount;
 
@@ -234,6 +249,10 @@ public class NetworkConveyor : NetworkBehaviour
             return;
         if (matchTimer != null && matchTimer.HasMatchEnded)
             return;
+        if (IsClient)
+            PublishLocalDemand();
+        if (IsServer)
+            PruneDemands();
         if (IsServer)
         {
             // Host determines which ingredients occupy each slot.
@@ -261,6 +280,126 @@ public class NetworkConveyor : NetworkBehaviour
 
             conveyor.ApplyRemoteSlots(snapshot, beltStep.Value);
         }
+    }
+
+    void PublishLocalDemand()
+    {
+        int count = conveyor.IngredientCount;
+        if (count == 0) return;
+        if (sendHardness.Length != count)
+        {
+            sendHardness = new int[count];
+            sendMissing = new bool[count];
+            sentHardness = new int[count];
+            sentMissing = new bool[count];
+            demandSent = false;
+        }
+
+        if (localQueue == null) localQueue = FindFirstObjectByType<RecipeQueueView>();
+        if (localHand == null) localHand = FindFirstObjectByType<IngredientHandView>();
+        if (placementZone == null) placementZone = FindFirstObjectByType<IngredientPlacementZone>();
+
+        RecipeIngredientWeights.CollectPlayerDemand(
+            localQueue, localHand, placementZone, demandHardness, demandMissing, requiredScratch);
+
+        for (int i = 0; i < count; i++)
+        {
+            IngredientData data = conveyor.GetIngredientByIndex(i);
+            sendHardness[i] = 0;
+            sendMissing[i] = false;
+            if (data == null) continue;
+            if (demandHardness.TryGetValue(data, out int hardness))
+                sendHardness[i] = hardness;
+            sendMissing[i] = demandMissing.Contains(data);
+        }
+
+        if (demandSent && Same(sendHardness, sentHardness) && Same(sendMissing, sentMissing))
+            return;
+
+        Array.Copy(sendHardness, sentHardness, count);
+        Array.Copy(sendMissing, sentMissing, count);
+        demandSent = true;
+        ReportSpawnDemandRpc(sendHardness, sendMissing);
+    }
+
+    static bool Same(int[] current, int[] previous)
+    {
+        for (int i = 0; i < current.Length; i++)
+            if (current[i] != previous[i]) return false;
+        return true;
+    }
+
+    static bool Same(bool[] current, bool[] previous)
+    {
+        for (int i = 0; i < current.Length; i++)
+            if (current[i] != previous[i]) return false;
+        return true;
+    }
+
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    void ReportSpawnDemandRpc(int[] hardness, bool[] missing, RpcParams rpcParams = default)
+    {
+        if (!IsServer || conveyor == null || hardness == null || missing == null) return;
+        int count = conveyor.IngredientCount;
+        if (hardness.Length != count || missing.Length != count) return;
+
+        ulong sender = rpcParams.Receive.SenderClientId;
+        if (!NetworkManager.ConnectedClients.ContainsKey(sender)) return;
+        for (int i = 0; i < count; i++)
+        {
+            if (hardness[i] < 0 || hardness[i] > RecipeData.IngredientSlotCount)
+                return;
+        }
+
+        playerHardness[sender] = (int[])hardness.Clone();
+        playerMissing[sender] = (bool[])missing.Clone();
+        ApplySharedDemand();
+    }
+
+    void PruneDemands()
+    {
+        staleDemandIds.Clear();
+        foreach (ulong playerId in playerHardness.Keys)
+        {
+            if (!NetworkManager.ConnectedClients.ContainsKey(playerId))
+                staleDemandIds.Add(playerId);
+        }
+
+        if (staleDemandIds.Count == 0) return;
+        foreach (ulong playerId in staleDemandIds)
+        {
+            playerHardness.Remove(playerId);
+            playerMissing.Remove(playerId);
+        }
+        ApplySharedDemand();
+    }
+
+    void ApplySharedDemand()
+    {
+        int count = conveyor.IngredientCount;
+        if (mergedHardness.Length != count)
+        {
+            mergedHardness = new int[count];
+            mergedMissing = new bool[count];
+        }
+
+        Array.Clear(mergedHardness, 0, count);
+        Array.Clear(mergedMissing, 0, count);
+        foreach (KeyValuePair<ulong, int[]> pair in playerHardness)
+        {
+            int[] hardness = pair.Value;
+            if (hardness == null || hardness.Length != count) continue;
+            playerMissing.TryGetValue(pair.Key, out bool[] missing);
+            for (int i = 0; i < count; i++)
+            {
+                if (hardness[i] > mergedHardness[i])
+                    mergedHardness[i] = hardness[i];
+                if (missing != null && missing.Length == count && missing[i])
+                    mergedMissing[i] = true;
+            }
+        }
+
+        conveyor.SetSharedRecipeDemand(mergedHardness, mergedMissing);
     }
 
     // Called when the local player clicks the revealed ingredient.

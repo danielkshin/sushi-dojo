@@ -5,8 +5,8 @@ using UnityEngine;
 namespace SushiDojo.Cards
 {
     /// <summary>
-    /// Belt spawn weighting: base × global frequency × active demand (scaled by recipe hardness),
-    /// blended toward equal odds by diversity mix.
+    /// Belt spawn weighting: base × global frequency × active demand (scaled by recipe hardness)
+    /// × extra weight when a player still needs that ingredient, blended toward equal odds by diversity mix.
     /// </summary>
     public static class RecipeIngredientWeights
     {
@@ -41,10 +41,11 @@ namespace SushiDojo.Cards
         }
 
         /// <summary>
-        /// focused = base * (1 + globalBoost * globalNorm) * (1 + activeBoost * hardnessScale),
+        /// focused = base * (1 + globalBoost * globalNorm) * (1 + activeBoost * hardnessScale) * missingFactor,
         /// then lerped toward equal odds by <paramref name="diversityMix"/>.
-        /// <paramref name="activeHardness"/> is the hardest active recipe size that needs this ingredient
+        /// <paramref name="activeHardness"/> is the hardest visible recipe size that needs this ingredient
         /// (shared needs use max, not sum — so two players needing Rice for 3-ings don't stack).
+        /// <paramref name="missing"/> multiplies again when a player still needs copies they don't hold.
         /// Base 0 stays 0.
         /// </summary>
         public static float EffectiveWeight(
@@ -54,7 +55,9 @@ namespace SushiDojo.Cards
             int activeHardness,
             float globalFrequencyBoost,
             float activeRecipeBoost,
-            float diversityMix)
+            float diversityMix,
+            bool missing = false,
+            float missingBoost = 0f)
         {
             if (baseWeight <= 0f) return 0f;
 
@@ -63,7 +66,10 @@ namespace SushiDojo.Cards
             float activeFactor = activeHardness > 0
                 ? 1f + Mathf.Max(0f, activeRecipeBoost) * HardnessScale(activeHardness)
                 : 1f;
-            float focused = baseWeight * globalFactor * activeFactor;
+            float missingFactor = missing && activeHardness > 0
+                ? 1f + Mathf.Max(0f, missingBoost)
+                : 1f;
+            float focused = baseWeight * globalFactor * activeFactor * missingFactor;
             const float equalShare = 1f;
             return Mathf.Lerp(focused, equalShare, Mathf.Clamp01(diversityMix));
         }
@@ -104,6 +110,74 @@ namespace SushiDojo.Cards
                 activeHardness.TryGetValue(ingredient, out int existing);
                 if (hardness > existing)
                     activeHardness[ingredient] = hardness;
+            }
+        }
+
+        /// <summary>
+        /// Visible recipes (current and next) set hardness. An ingredient is missing when those
+        /// recipes need more copies than the player holds in hand and on the board.
+        /// </summary>
+        public static void CollectPlayerDemand(
+            RecipeQueueView queue,
+            IngredientHandView hand,
+            IngredientPlacementZone board,
+            Dictionary<IngredientData, int> hardness,
+            HashSet<IngredientData> missing,
+            Dictionary<IngredientData, int> requiredScratch)
+        {
+            if (hardness == null || missing == null || requiredScratch == null) return;
+
+            hardness.Clear();
+            missing.Clear();
+            requiredScratch.Clear();
+            if (queue == null) return;
+
+            CountRecipeNeed(queue.CurrentRecipe, requiredScratch, hardness);
+            CountRecipeNeed(queue.NextRecipe, requiredScratch, hardness);
+
+            var held = new Dictionary<IngredientData, int>();
+            hand?.AddIngredientCounts(held);
+            board?.AddIngredientCounts(held);
+
+            foreach (KeyValuePair<IngredientData, int> pair in requiredScratch)
+            {
+                held.TryGetValue(pair.Key, out int have);
+                if (have < pair.Value)
+                    missing.Add(pair.Key);
+            }
+        }
+
+        static void CountRecipeNeed(
+            RecipeData recipe,
+            Dictionary<IngredientData, int> required,
+            Dictionary<IngredientData, int> hardness)
+        {
+            if (recipe?.Ingredients == null) return;
+            int size = CountIngredients(recipe);
+            if (size <= 0) return;
+
+            foreach (IngredientData ingredient in recipe.Ingredients)
+            {
+                if (ingredient == null) continue;
+                required.TryGetValue(ingredient, out int count);
+                required[ingredient] = count + 1;
+                hardness.TryGetValue(ingredient, out int existing);
+                if (size > existing)
+                    hardness[ingredient] = size;
+            }
+        }
+
+        public static void CollectGlobalFrequencies(Dictionary<IngredientData, int> frequencies)
+        {
+            if (frequencies == null) return;
+            frequencies.Clear();
+
+            RecipeQueueView[] queues = Object.FindObjectsByType<RecipeQueueView>(
+                FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+            foreach (RecipeQueueView queue in queues)
+            {
+                foreach (RecipeData recipe in queue.DeckRecipes)
+                    AddRecipeFrequencies(recipe, frequencies);
             }
         }
 
