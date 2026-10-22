@@ -29,21 +29,21 @@ namespace SushiDojo.Cards
         RecipeCardUI nextCard;
         [SerializeField] IngredientPlacementZone placementZone;
         readonly List<IngredientData> submittedIngredients = new();
-        int currentIndex;
+        RecipeData[] catalog = Array.Empty<RecipeData>();
+        RecipeData currentRecipe;
+        RecipeData nextRecipe;
+        System.Random random;
         bool isAnimating;
 
         public event Action<RecipeData> RecipeCompleted;
-        /// <summary>Fired when the visible current/next recipes change (after shuffle or a completion).</summary>
+        /// <summary>Fired when the visible current/next recipes change (after the opening deal or a completion).</summary>
         public event Action RecipeQueueChanged;
 
-        public RecipeData CurrentRecipe =>
-            currentIndex < recipeDeck.Length ? recipeDeck[currentIndex] : null;
+        public RecipeData CurrentRecipe => currentRecipe;
+        public RecipeData NextRecipe => nextRecipe;
 
-        public RecipeData NextRecipe =>
-            currentIndex + 1 < recipeDeck.Length ? recipeDeck[currentIndex + 1] : null;
-
-        /// <summary>Remaining recipes in deck order (including current).</summary>
-        public IReadOnlyList<RecipeData> DeckRecipes => recipeDeck;
+        /// <summary>The full recipe list. Completed recipes stay in it and can be dealt again.</summary>
+        public IReadOnlyList<RecipeData> DeckRecipes => catalog;
 
         void Awake()
         {
@@ -77,42 +77,54 @@ namespace SushiDojo.Cards
                 return;
             }
 
-            recipeDeck = (RecipeData[])recipeDeck.Clone();
-            ShuffleRecipeDeckWeighted();
+            catalog = (RecipeData[])recipeDeck.Clone();
+            random = new System.Random(Guid.NewGuid().GetHashCode());
+            currentRecipe = DrawRecipe(null);
+            nextRecipe = DrawRecipe(currentRecipe);
             topCard = Instantiate(cardPrefab, transform, false);
             nextCard = Instantiate(cardPrefab, transform, false);
             PositionCard(topCard, TopSlotPosition);
             PositionCard(nextCard, NextSlotPosition);
             RefreshCards();
             RecipeQueueChanged?.Invoke();
-            Debug.Log($"[RecipeQueue] Ready in {gameObject.scene.name}; recipes={recipeDeck.Length}.", this);
+            Debug.Log($"[RecipeQueue] Ready in {gameObject.scene.name}; recipes={catalog.Length}.", this);
         }
 
         /// <summary>
-        /// Tier percentages (3→40%, 4→25%, 5→20%, 6+→15%), then uniform within the chosen tier.
-        /// Empty tiers redistribute their share among remaining tiers.
+        /// Draw one recipe from the full list. Tier percentages are 3→50%, 4→40%, 6+→10%,
+        /// then uniform within the chosen tier. Empty tiers redistribute their share.
+        /// <paramref name="except"/> is skipped when another recipe is available, so the two
+        /// visible cards differ, while a finished recipe can be dealt again right away.
         /// </summary>
-        void ShuffleRecipeDeckWeighted()
+        RecipeData DrawRecipe(RecipeData except)
         {
-            var random = new System.Random(Guid.NewGuid().GetHashCode());
-            var remaining = new List<RecipeData>(recipeDeck);
-            for (int write = 0; write < recipeDeck.Length; write++)
+            var pool = new List<RecipeData>(catalog.Length);
+            foreach (RecipeData recipe in catalog)
             {
-                int tier = PickRecipeTier(remaining, random);
-                int pick = -1;
-                int tierCount = 0;
-                for (int i = 0; i < remaining.Count; i++)
-                {
-                    if (RecipeTier(remaining[i]) != tier) continue;
-                    tierCount++;
-                    if (random.Next(tierCount) == 0)
-                        pick = i;
-                }
-
-                if (pick < 0) pick = remaining.Count - 1;
-                recipeDeck[write] = remaining[pick];
-                remaining.RemoveAt(pick);
+                if (recipe == null || recipe == except) continue;
+                pool.Add(recipe);
             }
+
+            if (pool.Count == 0)
+            {
+                foreach (RecipeData recipe in catalog)
+                    if (recipe != null) pool.Add(recipe);
+            }
+
+            if (pool.Count == 0) return null;
+
+            int tier = PickRecipeTier(pool, random);
+            int pick = -1;
+            int tierCount = 0;
+            for (int i = 0; i < pool.Count; i++)
+            {
+                if (RecipeTier(pool[i]) != tier) continue;
+                tierCount++;
+                if (random.Next(tierCount) == 0)
+                    pick = i;
+            }
+
+            return pick >= 0 ? pool[pick] : pool[pool.Count - 1];
         }
 
         static int PickRecipeTier(List<RecipeData> remaining, System.Random random)
@@ -122,10 +134,10 @@ namespace SushiDojo.Cards
             {
                 switch (RecipeTier(recipe))
                 {
-                    case 3: w3 = 0.4f; break;
-                    case 4: w4 = 0.25f; break;
-                    case 5: w5 = 0.2f; break;
-                    default: w6 = 0.15f; break;
+                    case 3: w3 = 0.5f; break;
+                    case 4: w4 = 0.4f; break;
+                    case 5: w5 = 0f; break;
+                    default: w6 = 0.1f; break;
                 }
             }
 
@@ -180,7 +192,7 @@ namespace SushiDojo.Cards
 
         public void CompleteTopRecipe()
         {
-            if (!enabled || isAnimating || currentIndex >= recipeDeck.Length) return;
+            if (!enabled || isAnimating || currentRecipe == null) return;
             // The board ingredients are handed to the merge effect (or cleared) inside the routine.
             submittedIngredients.Clear();
             StartCoroutine(CompleteTopRecipeRoutine());
@@ -193,8 +205,7 @@ namespace SushiDojo.Cards
             if (isAnimating) return;
 
             submittedIngredients.Add(ingredient);
-            RecipeData secondRecipe = currentIndex + 1 < recipeDeck.Length
-                ? recipeDeck[currentIndex + 1] : null;
+            RecipeData secondRecipe = nextRecipe;
             if (MatchesRecipe(CurrentRecipe))
             {
                 CompleteTopRecipe();
@@ -242,8 +253,7 @@ namespace SushiDojo.Cards
             {
                 if (isAnimating || submittedIngredients.Count == 0 || CurrentRecipe == null) return false;
                 if (CanCompleteRecipe(CurrentRecipe)) return false;
-                RecipeData secondRecipe = currentIndex + 1 < recipeDeck.Length ? recipeDeck[currentIndex + 1] : null;
-                return secondRecipe == null || !CanCompleteRecipe(secondRecipe);
+                return nextRecipe == null || !CanCompleteRecipe(nextRecipe);
             }
         }
 
@@ -272,16 +282,13 @@ namespace SushiDojo.Cards
         {
             isAnimating = true;
             if (placementZone != null) placementZone.AcceptingIngredients = false;
-            RecipeData completedRecipe = recipeDeck[currentIndex + 1];
+            RecipeData completedRecipe = nextRecipe;
             yield return CookOnBoard(completedRecipe);
             yield return PopAndFade(nextCard);
 
-            // Remove only the second recipe; the first remains available.
-            for (int i = currentIndex + 1; i < recipeDeck.Length - 1; i++)
-                recipeDeck[i] = recipeDeck[i + 1];
-            Array.Resize(ref recipeDeck, recipeDeck.Length - 1);
+            nextRecipe = DrawRecipe(currentRecipe);
             RefreshCards();
-            if (currentIndex + 1 < recipeDeck.Length)
+            if (nextRecipe != null)
             {
                 PositionCard(nextCard, NextSlotPosition + Vector2.right * exitDistance);
                 yield return AnimateCards((RectTransform)nextCard.transform,
@@ -316,9 +323,9 @@ namespace SushiDojo.Cards
         {
             isAnimating = true;
             if (placementZone != null) placementZone.AcceptingIngredients = false;
-            RecipeData completedRecipe = recipeDeck[currentIndex];
+            RecipeData completedRecipe = currentRecipe;
             RectTransform topRect = (RectTransform)topCard.transform;
-            RectTransform nextRect = currentIndex + 1 < recipeDeck.Length
+            RectTransform nextRect = nextRecipe != null
                 ? (RectTransform)nextCard.transform
                 : null;
 
@@ -329,17 +336,18 @@ namespace SushiDojo.Cards
                 yield return AnimateCards(nextRect, TopSlotPosition, Vector3.one * cardScale, null, Vector2.zero, Vector3.one);
             topRect.anchoredPosition = TopSlotPosition + Vector2.left * exitDistance;
 
-            currentIndex++;
+            currentRecipe = nextRecipe;
+            nextRecipe = DrawRecipe(currentRecipe);
             RecipeCardUI oldTopCard = topCard;
             topCard = nextCard;
             nextCard = oldTopCard;
 
-            if (currentIndex < recipeDeck.Length)
+            if (currentRecipe != null)
             {
                 PositionCard(topCard, TopSlotPosition);
-                if (currentIndex + 1 < recipeDeck.Length)
+                if (nextRecipe != null)
                 {
-                    nextCard.SetData(recipeDeck[currentIndex + 1]);
+                    nextCard.SetData(nextRecipe);
                     nextCard.gameObject.SetActive(true);
                     PositionCard(nextCard, NextSlotPosition + Vector2.right * exitDistance);
                     yield return AnimateCards(
@@ -446,12 +454,8 @@ namespace SushiDojo.Cards
         {
             topCard.SetData(CurrentRecipe);
             topCard.gameObject.SetActive(CurrentRecipe != null);
-
-            RecipeData nextRecipe = currentIndex + 1 < recipeDeck.Length
-                ? recipeDeck[currentIndex + 1]
-                : null;
-            nextCard.SetData(nextRecipe);
-            nextCard.gameObject.SetActive(nextRecipe != null);
+            nextCard.SetData(NextRecipe);
+            nextCard.gameObject.SetActive(NextRecipe != null);
         }
 
         void PositionCard(RecipeCardUI card, Vector2 position)
