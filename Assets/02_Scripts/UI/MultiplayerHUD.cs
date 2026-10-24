@@ -68,7 +68,7 @@ namespace SushiDojo.UI
             resultTitle.text = disconnected ? "PLAYER DISCONNECTED" :
                 timer.Winner == 0 ? "IT'S A TIE" : localWon ? "YOU WIN!" : "OPPONENT WINS";
             resultDetails.text = scoresReady
-                ? $"YOU {scoreboard.LocalScore}  —  OPPONENT {scoreboard.OpponentScore}\n" +
+                ? $"YOU {scoreboard.LocalScore} - OPPONENT {scoreboard.OpponentScore}\n" +
                   $"Recipe points: {scoreboard.LocalPoints} / {scoreboard.OpponentPoints}\n" +
                   $"Waste penalty: {scoreboard.LocalWaste} / {scoreboard.OpponentWaste}"
                 : "The connection was lost.";
