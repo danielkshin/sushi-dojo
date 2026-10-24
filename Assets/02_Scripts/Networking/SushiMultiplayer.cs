@@ -170,15 +170,20 @@ public class SushiMultiplayer : MonoBehaviour
             await initialization;
             if (returningToMenu) return;
             if (manager.NetworkConfig.NetworkTransport is UnityTransport transport)
+            {
                 transport.MaxPacketQueueSize = Math.Max(transport.MaxPacketQueueSize, 1024);
+                // A browser cannot open Relay's UDP socket. WebGL builds reach Relay over wss.
+#if UNITY_WEBGL
+                transport.UseWebSockets = true;
+#endif
+            }
             if (code == null)
-                session = await MultiplayerService.Instance.CreateSessionAsync(
-                    new SessionOptions { MaxPlayers = 2 }.WithRelayNetwork());
+                session = await MultiplayerService.Instance.CreateSessionAsync(WebRelay(new SessionOptions { MaxPlayers = 2 }.WithRelayNetwork()));
             else
             {
                 code = code.Trim().ToUpperInvariant();
                 if (code.Length == 0) throw new ArgumentException("Enter a room code.");
-                session = await MultiplayerService.Instance.JoinSessionByCodeAsync(code);
+                session = await MultiplayerService.Instance.JoinSessionByCodeAsync(code, WebRelay(new JoinSessionOptions()));
             }
             HasOpponent = manager.IsHost ? manager.ConnectedClientsIds.Count == 2 : manager.IsConnectedClient;
             status = HasOpponent ? "Both players connected" : manager.IsHost ? "Waiting for player" : "Connecting to host...";
@@ -192,6 +197,17 @@ public class SushiMultiplayer : MonoBehaviour
             if (manager.IsListening && session == null) manager.Shutdown();
         }
         finally { operationInProgress = false; }
+    }
+
+    static T WebRelay<T>(T options) where T : BaseSessionOptions
+    {
+#if UNITY_WEBGL
+        // RelayProtocol.Default is already WSS here. Set it explicitly so a browser
+        // host and a browser guest allocate the same connection type.
+        return options.WithNetworkOptions(new NetworkOptions { RelayProtocol = RelayProtocol.WSS });
+#else
+        return options;
+#endif
     }
 
     static bool IsRoomFull(Exception error)
