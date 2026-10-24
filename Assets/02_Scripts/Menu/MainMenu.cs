@@ -189,14 +189,23 @@ namespace SushiDojo.Menu
         {
             if (cam == null) cam = Camera.main;
 
-            int count = buttonPanel.childCount;
+#if UNITY_WEBGL
+            Transform quit = buttonPanel.Find("QUIT");
+            if (quit != null) quit.gameObject.SetActive(false);
+#endif
+            int count = 0;
+            for (int i = 0; i < buttonPanel.childCount; i++)
+                if (buttonPanel.GetChild(i).gameObject.activeSelf) count++;
+
             buttons = new RectTransform[count];
             buttonRestPositions = new Vector2[count];
-            for (int i = 0; i < count; i++)
+            for (int i = 0, slot = 0; i < buttonPanel.childCount; i++)
             {
-                buttons[i] = (RectTransform)buttonPanel.GetChild(i);
-                buttonRestPositions[i] = buttons[i].anchoredPosition;
-                PlaceButton(i, 0f);
+                if (!buttonPanel.GetChild(i).gameObject.activeSelf) continue;
+                buttons[slot] = (RectTransform)buttonPanel.GetChild(i);
+                buttonRestPositions[slot] = buttons[slot].anchoredPosition;
+                PlaceButton(slot, 0f);
+                slot++;
             }
             SetButtonsInteractable(false);
             buttonGroup.alpha = 0f;
