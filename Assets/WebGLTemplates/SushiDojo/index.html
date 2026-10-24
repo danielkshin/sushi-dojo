@@ -16,8 +16,11 @@
   </head>
   <body>
     <div id="preview">
-      <img src="TemplateData/preview.png" alt="{{{ PRODUCT_NAME }}}">
-      <button id="play-button" type="button">PLAY</button>
+      <div id="preview-stage">
+        <img src="TemplateData/preview.png" alt="{{{ PRODUCT_NAME }}}">
+        <button id="play-button" type="button">PLAY</button>
+      </div>
+      <p class="credits">Created by <a href="https://seohyeon-min.github.io/my_portfolio/" target="_blank" rel="noopener">Seohyeon Min</a>, <a href="https://github.com/BaLancelot" target="_blank" rel="noopener">Lance Atienza</a>, and <a href="http://danielkshin.github.io/" target="_blank" rel="noopener">Daniel Shin</a> for <a href="https://dh26.dubhacks.co/" target="_blank" rel="noopener">DubHacks '26</a></p>
     </div>
     <div id="unity-container" class="unity-desktop is-hidden">
       <canvas id="unity-canvas" width={{{ WIDTH }}} height={{{ HEIGHT }}} tabindex="-1"></canvas>
@@ -29,6 +32,7 @@
       </div>
       <div id="unity-warning"> </div>
       <div id="unity-footer">
+        <p class="credits">Created by <a href="https://seohyeon-min.github.io/my_portfolio/" target="_blank" rel="noopener">Seohyeon Min</a>, <a href="https://github.com/BaLancelot" target="_blank" rel="noopener">Lance Atienza</a>, and <a href="http://danielkshin.github.io/" target="_blank" rel="noopener">Daniel Shin</a> for <a href="https://dh26.dubhacks.co/" target="_blank" rel="noopener">DubHacks '26</a></p>
         <div id="unity-logo-title-footer"></div>
         <div id="unity-fullscreen-button">FULLSCREEN</div>
 #if SHOW_DIAGNOSTICS
