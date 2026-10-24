@@ -63,6 +63,8 @@ MonoBehaviour:
   - {fileID: 11400000, guid: b174f6dadbb4429cbce57e9da16cad93, type: 2}
   - {fileID: 11400000, guid: 5a9db8ce12c5217c544f199ef13055ea, type: 2}
   - {fileID: 11400000, guid: c9d2cae4d5ef4ad4924b88e99d9112e4, type: 2}
+  - {fileID: 11400000, guid: 991cc498a7954ad1bf948a06230a7d95, type: 2}
+  - {fileID: 11400000, guid: 989fee99abc14c3da861a3f0d58d79c5, type: 2}
   sideSlotCount: 2
   slotSpacing: 1.5
   beltBody: {fileID: 500004}
